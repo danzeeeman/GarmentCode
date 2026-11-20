@@ -442,7 +442,7 @@ class Shirt(pyg.Component):
 
         if design['shirt'].get('front_opening', {}).get('v', False):
             # Jackets and coats: the centre front is an opening, closed (zip / buttons) on part of its length
-            self._open_front(design)
+            self._open_front(body, design)
         else:
             self.stitching_rules.append((self.right.interfaces['front_in'],
                                          self.left.interfaces['front_in']))
@@ -458,50 +458,137 @@ class Shirt(pyg.Component):
                 self.right.interfaces['b_bottom'],)
         }
 
-    def _open_front(self, design):
-        """Leave the centre front open. `front_closure` is the fraction of the front edge of the torso panels
-            (below the neckline) that is fastened, counted from the hem up: 0 -- worn open, 1 -- closed up
-            to the neckline. Collar panels (lapels, hoods) are never joined at the front.
+    def _open_front(self, body, design):
+        """Leave the centre front open (jackets, coats, cardigans).
+
+            * `front_closure` -- fraction of the front edge of the torso panels (below the neckline) that is
+                fastened, counted from the hem up: 0 -- worn open, 1 -- closed up to the neckline.
+            * `front_overlap` -- how far the fronts wrap over each other, as a fraction of the front half
+                width: 0 -- edge to edge (zip), ~0.1 -- single-breasted button stand, ~0.4 -- double-breasted.
+            * `front_buttons` -- number of fastening points along the fastened part (with an overlap).
+
+            With an overlap the wearer's left front goes over: it is extended past the centre by half of the
+            overlap, the right front is cut back by the same amount and continues under the left one as a
+            separate underlap panel. One edge can only be in one seam, so the closing line alternates:
+            "button" segments join the two fronts, the segments between them hold the underlap.
+            Collar panels (lapels, hoods) are never joined at the front.
         """
-        closure = design['shirt'].get('front_closure', {}).get('v', 0.)
-        closure = min(max(float(closure), 0.), 1.)
+        sd = design['shirt']
+        closure = min(max(float(sd.get('front_closure', {}).get('v', 0.)), 0.), 1.)
+        overlap = max(float(sd.get('front_overlap', {}).get('v', 0.)), 0.)
+        overlap *= (body['bust'] - body['back_width']) / 2   # cm
+        n_buttons = max(int(sd.get('front_buttons', {}).get('v', 2)), 1)
 
-        fronts = []
-        for half in (self.right, self.left):
-            panel = half.ftorso
-            edges = panel.interfaces['inside'].edges   # top -> hem
-            edges.propagate_label('front_opening')
-            if closure < 0.02:
-                continue
-            if closure > 0.98:
-                fronts.append(pyg.Interface(panel, edges))
-                continue
-            # Fasten the lower part: split the edge that contains the split point.
-            # NOTE: the edge order runs top -> hem on one half and hem -> top on the mirrored one
-            top_down = edges[0].start[1] > edges[-1].end[1]
-            target = ((1. - closure) if top_down else closure) * edges.length()
-            passed = 0.
-            closed = []
-            for edge in list(edges):
-                e_len = edge.length()
-                if target >= passed + e_len - 1e-3:     # fully before the split point
-                    if not top_down:
-                        closed.append(edge)
-                elif target <= passed + 1e-3:           # fully after the split point
-                    if top_down:
-                        closed.append(edge)
-                else:
-                    frac = (target - passed) / e_len
-                    parts = edge.subdivide_len([frac, 1. - frac])
-                    panel.edges.substitute(edge, parts)
-                    panel.interfaces['inside'].substitute(edge, parts, [panel] * len(parts))
-                    parts.propagate_label('front_opening')
-                    closed.append(parts[-1] if top_down else parts[0])
-                passed += e_len
-            fronts.append(pyg.Interface(panel, closed))
+        under, over = self.right.ftorso, self.left.ftorso
+        for panel in (under, over):
+            panel.interfaces['inside'].edges.propagate_label('front_opening')
 
-        if len(fronts) == 2:
-            self.stitching_rules.append((fronts[0], fronts[1]))
+        if overlap > 0.5:
+            self._shift_front_edge(under, -overlap / 2)
+            self._shift_front_edge(over, overlap / 2)
+            over.translate_by([0, 0, 2])   # on top
+
+        if closure < 0.02:
+            return
+        r_closed = self._front_closed_part(under, closure)
+        l_closed = self._front_closed_part(over, closure)
+
+        if overlap <= 0.5 or len(r_closed) != 1 or len(l_closed) != 1:
+            self.stitching_rules.append((pyg.Interface(under, r_closed), pyg.Interface(over, l_closed)))
+            return
+
+        # Alternating segments along the closing line, hem -> top
+        n_seg = 2 * n_buttons + 1
+        r_seg = self._subdivide_front(under, r_closed[0], n_seg)
+        l_seg = self._subdivide_front(over, l_closed[0], n_seg)
+
+        # Underlap: continues the right front under the left one
+        x = r_seg[0].start[0]
+        y_0 = min(r_seg[0].start[1], r_seg[0].end[1])
+        y_1 = max(r_seg[-1].start[1], r_seg[-1].end[1])
+        self.underlap = pyg.Panel('right_underlap')
+        # Same winding as the front panel: its closing edge then runs against the front panel's one,
+        # as edges of a seam should
+        if r_seg[0].start[1] < r_seg[0].end[1]:
+            self.underlap.edges = pyg.EdgeSeqFactory.from_verts(
+                [x, y_1], [x, y_0], [x + overlap, y_0], [x + overlap, y_1], loop=True)
+        else:
+            self.underlap.edges = pyg.EdgeSeqFactory.from_verts(
+                [x, y_0], [x, y_1], [x + overlap, y_1], [x + overlap, y_0], loop=True)
+        self.underlap.translation = np.array(under.translation, dtype=float) + np.array([0., 0., -2.])
+        self.underlap.rotation = under.rotation
+        self.underlap.set_panel_label('body', overwrite=False)
+        u_edge = self.underlap.edges[0]
+        u_seg = u_edge.subdivide_len([1. / n_seg] * n_seg)
+        self.underlap.edges.substitute(u_edge, u_seg)
+        u_seg.propagate_label('front_opening')
+        u_seg = list(u_seg)
+        if u_seg[0].start[1] > u_seg[-1].end[1]:   # hem -> top
+            u_seg.reverse()
+
+        for i in range(n_seg):
+            if i % 2:   # button
+                self.stitching_rules.append((pyg.Interface(under, r_seg[i]), pyg.Interface(over, l_seg[i])))
+            else:
+                self.stitching_rules.append((pyg.Interface(under, r_seg[i]), pyg.Interface(self.underlap, u_seg[i])))
+
+    @staticmethod
+    def _shift_front_edge(panel, delta):
+        """Move the centre front edge of a front panel: delta > 0 -- past the centre (wider panel),
+            delta < 0 -- cut back
+        """
+        edges = panel.interfaces['inside'].edges
+        x_front = edges[0].start[0]
+        x_all = [e.start[0] for e in panel.edges]
+        inner = sum(x_all) / len(x_all) - x_front   # direction to the panel interior
+        dx = -delta if inner > 0 else delta
+        moved = set()
+        for edge in edges:
+            for vert in (edge.start, edge.end):
+                if id(vert) not in moved:
+                    moved.add(id(vert))
+                    vert[0] += dx
+
+    @staticmethod
+    def _front_closed_part(panel, closure):
+        """Edges of the fastened (lower) part of the centre front edge; splits the edge at the top of it"""
+        edges = panel.interfaces['inside'].edges
+        if closure > 0.98:
+            return list(edges)
+        # NOTE: the edge order runs top -> hem on one half and hem -> top on the mirrored one
+        top_down = edges[0].start[1] > edges[-1].end[1]
+        target = ((1. - closure) if top_down else closure) * edges.length()
+        passed = 0.
+        closed = []
+        for edge in list(edges):
+            e_len = edge.length()
+            if target >= passed + e_len - 1e-3:     # fully before the split point
+                if not top_down:
+                    closed.append(edge)
+            elif target <= passed + 1e-3:           # fully after the split point
+                if top_down:
+                    closed.append(edge)
+            else:
+                frac = (target - passed) / e_len
+                parts = edge.subdivide_len([frac, 1. - frac])
+                panel.edges.substitute(edge, parts)
+                panel.interfaces['inside'].substitute(edge, parts, [panel] * len(parts))
+                parts.propagate_label('front_opening')
+                closed.append(parts[-1] if top_down else parts[0])
+            passed += e_len
+        return closed
+
+    @staticmethod
+    def _subdivide_front(panel, edge, n_seg):
+        """Split a front edge into equal segments; returns them ordered hem -> top"""
+        parts = edge.subdivide_len([1. / n_seg] * n_seg)
+        panel.edges.substitute(edge, parts)
+        panel.interfaces['inside'].substitute(edge, parts, [panel] * len(parts))
+        parts.propagate_label('front_opening')
+        parts = list(parts)
+        if parts[0].start[1] > parts[-1].end[1]:
+            parts.reverse()
+        return parts
 
     def eval_dep_params(self, design):
         # NOTE: Support for full collars with partially strapless top

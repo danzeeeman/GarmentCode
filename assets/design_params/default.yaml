@@ -88,6 +88,20 @@ design:
       - 1.0
       type: float
       default_prob: 0.4
+    front_overlap:    # wrap of the fronts over each other: 0 = edge to edge, 0.1 = button stand, 0.4 = double-breasted
+      v: 0.0
+      range:
+      - 0.0
+      - 0.6
+      type: float
+      default_prob: 0.5
+    front_buttons:    # fastening points along the fastened part (used with an overlap)
+      v: 2
+      range:
+      - 1
+      - 4
+      type: int
+      default_prob: 0.5
   collar:
     f_collar:
       v: CircleNeckHalf
