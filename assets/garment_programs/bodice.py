@@ -440,8 +440,12 @@ class Shirt(pyg.Component):
             design['left'] if design['left']['enable_asym']['v'] else design, 
             fitted=fitted).mirror()
 
-        self.stitching_rules.append((self.right.interfaces['front_in'],
-                                     self.left.interfaces['front_in']))
+        if design['shirt'].get('front_opening', {}).get('v', False):
+            # Jackets and coats: the centre front is an opening, closed (zip / buttons) on part of its length
+            self._open_front(design)
+        else:
+            self.stitching_rules.append((self.right.interfaces['front_in'],
+                                         self.left.interfaces['front_in']))
         self.stitching_rules.append((self.right.interfaces['back_in'],
                                      self.left.interfaces['back_in']))
 
@@ -453,6 +457,51 @@ class Shirt(pyg.Component):
                 self.left.interfaces['b_bottom'].reverse(),
                 self.right.interfaces['b_bottom'],)
         }
+
+    def _open_front(self, design):
+        """Leave the centre front open. `front_closure` is the fraction of the front edge of the torso panels
+            (below the neckline) that is fastened, counted from the hem up: 0 -- worn open, 1 -- closed up
+            to the neckline. Collar panels (lapels, hoods) are never joined at the front.
+        """
+        closure = design['shirt'].get('front_closure', {}).get('v', 0.)
+        closure = min(max(float(closure), 0.), 1.)
+
+        fronts = []
+        for half in (self.right, self.left):
+            panel = half.ftorso
+            edges = panel.interfaces['inside'].edges   # top -> hem
+            edges.propagate_label('front_opening')
+            if closure < 0.02:
+                continue
+            if closure > 0.98:
+                fronts.append(pyg.Interface(panel, edges))
+                continue
+            # Fasten the lower part: split the edge that contains the split point.
+            # NOTE: the edge order runs top -> hem on one half and hem -> top on the mirrored one
+            top_down = edges[0].start[1] > edges[-1].end[1]
+            target = ((1. - closure) if top_down else closure) * edges.length()
+            passed = 0.
+            closed = []
+            for edge in list(edges):
+                e_len = edge.length()
+                if target >= passed + e_len - 1e-3:     # fully before the split point
+                    if not top_down:
+                        closed.append(edge)
+                elif target <= passed + 1e-3:           # fully after the split point
+                    if top_down:
+                        closed.append(edge)
+                else:
+                    frac = (target - passed) / e_len
+                    parts = edge.subdivide_len([frac, 1. - frac])
+                    panel.edges.substitute(edge, parts)
+                    panel.interfaces['inside'].substitute(edge, parts, [panel] * len(parts))
+                    parts.propagate_label('front_opening')
+                    closed.append(parts[-1] if top_down else parts[0])
+                passed += e_len
+            fronts.append(pyg.Interface(panel, closed))
+
+        if len(fronts) == 2:
+            self.stitching_rules.append((fronts[0], fronts[1]))
 
     def eval_dep_params(self, design):
         # NOTE: Support for full collars with partially strapless top

@@ -74,6 +74,20 @@ design:
       - 1.6
       type: float
       default_prob: 0.4
+    front_opening:    # jackets, coats, cardigans: the centre front is not sewn shut
+      v: false
+      range:
+      - true
+      - false
+      type: bool
+      default_prob: 0.85
+    front_closure:    # fraction of the front edge that is fastened, from the hem up (0 = worn open)
+      v: 0.0
+      range:
+      - 0.0
+      - 1.0
+      type: float
+      default_prob: 0.4
   collar:
     f_collar:
       v: CircleNeckHalf
