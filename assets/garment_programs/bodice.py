@@ -428,6 +428,8 @@ class Shirt(pyg.Component):
     """Panel for the front of upper garments with darts to properly fit it to
     the shape"""
 
+    front_opening = False   # Jackets: open at the front whatever the design says
+
     def __init__(self, body, design, fitted=False) -> None:
         name_with_params = f"{self.__class__.__name__}"
         super().__init__(name_with_params)
@@ -440,7 +442,7 @@ class Shirt(pyg.Component):
             design['left'] if design['left']['enable_asym']['v'] else design, 
             fitted=fitted).mirror()
 
-        if design['shirt'].get('front_opening', {}).get('v', False):
+        if self.front_opening or design['shirt'].get('front_opening', {}).get('v', False):
             # Jackets and coats: the centre front is an opening, closed (zip / buttons) on part of its length
             self._open_front(body, design)
         else:
@@ -625,3 +627,22 @@ class FittedShirt(Shirt):
     """
     def __init__(self, body, design) -> None:
         super().__init__(body, design, fitted=True)
+
+
+
+class Jacket(Shirt):
+    """Straight upper garment that opens at the front: jackets, suit jackets, cardigans, coats
+
+        Same parametrization as Shirt. The front is always an opening (`shirt.front_opening` is implied);
+        `shirt.front_closure`, `front_overlap` and `front_buttons` control how it fastens,
+        `shirt.waist_shape` takes the side seams in at the waist, `shirt.length` goes from cropped
+        jackets to coats.
+
+        NOTE: Separate class is used for selection convenience, as with FittedShirt
+    """
+    front_opening = True
+
+
+class FittedJacket(FittedShirt):
+    """Fitted (darted) waist-length top that opens at the front: boleros, cropped fitted jackets"""
+    front_opening = True

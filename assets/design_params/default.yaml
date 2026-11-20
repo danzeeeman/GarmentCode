@@ -5,6 +5,8 @@ design:
       range:
       - FittedShirt
       - Shirt
+      - Jacket
+      - FittedJacket
       - null
       type: select_null
       default_prob: 0.3
@@ -74,6 +76,13 @@ design:
       - 1.6
       type: float
       default_prob: 0.4
+    waist_shape:      # side seams taken in at the waist (straight shirts and jackets): 0 = straight, 1 = to the waist
+      v: 0.0
+      range:
+      - 0.0
+      - 1.0
+      type: float
+      default_prob: 0.6
     front_opening:    # jackets, coats, cardigans: the centre front is not sewn shut
       v: false
       range:

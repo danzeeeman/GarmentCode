@@ -7,6 +7,28 @@ import pygarment as pyg
 from assets.garment_programs.base_classes import BaseBodicePanel
 
 
+def _side_edges(b_width, width, length, body, design, body_waist):
+    """Vertices of the side seam of a straight torso panel, hem -> armhole level.
+
+        With `waist_shape` > 0 (jackets, coats) the seam is taken in at the waist: 1 brings the panel to
+        the body's waist measurement plus ease. Only panels long enough to pass the waist are shaped.
+    """
+    hem, top = [-b_width, 0], [-width, length]
+    shape = design.get('waist_shape', {}).get('v', 0.)
+    y_waist = length - body['waist_line']
+    y_bust = length - body['_bust_line']
+    if shape <= 0 or y_waist < 5 or y_bust - y_waist < 5:
+        return [hem, top]
+
+    def on_line(y):
+        return b_width + (width - b_width) * y / length
+
+    take_in = shape * max(on_line(y_waist) - body_waist * 1.1, 0)
+    if take_in < 0.5:
+        return [hem, top]
+    return [hem, [-(on_line(y_waist) - take_in), y_waist], [-on_line(y_bust), y_bust], top]
+
+
 class TorsoFrontHalfPanel(BaseBodicePanel):
     """Half of a simple non-fitted upper garment (e.g. T-Shirt)
     
@@ -38,17 +60,18 @@ class TorsoFrontHalfPanel(BaseBodicePanel):
         fb_diff = (frac - (0.5 - frac)) * body['bust']
         length = length - sh_tan * fb_diff
 
+        side = _side_edges(
+            b_width, self.width, length, body, design, (body['waist'] - body['waist_back_width']) / 2)
         self.edges = pyg.EdgeSeqFactory.from_verts(
             [0, 0], 
-            [-b_width, 0], 
-            [-self.width, length], 
+            *side, 
             [0, length + shoulder_incl], 
             loop=True
         )
 
         # Interfaces
         self.interfaces = {
-            'outside':  pyg.Interface(self, self.edges[1]),   
+            'outside':  pyg.Interface(self, self.edges[1:-2]),   
             'inside': pyg.Interface(self, self.edges[-1]),
             'shoulder': pyg.Interface(self, self.edges[-2]),
             'bottom': pyg.Interface(self, self.edges[0], ruffle=self.edges[0].length() / ((body['waist'] - body['waist_back_width']) / 2)),
@@ -89,17 +112,17 @@ class TorsoBackHalfPanel(BaseBodicePanel):
         shoulder_incl = (np.tan(np.deg2rad(body['_shoulder_incl']))) * self.width
         length = design['length']['v'] * body['waist_line']
 
+        side = _side_edges(b_width, self.width, length, body, design, body['waist_back_width'] / 2)
         self.edges = pyg.EdgeSeqFactory.from_verts(
             [0, 0], 
-            [-b_width, 0], 
-            [-self.width, length], 
+            *side, 
             [0, length + shoulder_incl], 
             loop=True
         )
 
         # Interfaces
         self.interfaces = {
-            'outside':  pyg.Interface(self, self.edges[1]),   
+            'outside':  pyg.Interface(self, self.edges[1:-2]),   
             'inside': pyg.Interface(self, self.edges[-1]),
             'shoulder': pyg.Interface(self, self.edges[-2]),
             'bottom': pyg.Interface(self, self.edges[0], ruffle=self.edges[0].length() / (body['waist_back_width'] / 2)),
