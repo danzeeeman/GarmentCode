@@ -16,6 +16,7 @@ import argparse
 # Custom
 from pygarment.data_config import Properties
 from assets.garment_programs.meta_garment import MetaGarment, IncorrectElementConfiguration
+from pygarment.garmentcode.patchwork import apply_patchwork
 from assets.bodies.body_params import BodyParameters
 import pygarment as pyg
 import assets.garment_programs.stats_utils as stats_utils
@@ -102,6 +103,9 @@ def body_sample(bodies: dict, path: Path, straight=True):
 def _save_sample(piece, body, new_design, folder, verbose=False):
 
     pattern = piece.assembly()
+    # Patchwork (the design's patchwork group): the pieces broken into smaller ones, the same cuts as the AtelierCutroom engine
+    if apply_patchwork(pattern.pattern, new_design) > 0:
+        pattern.panel_order(force_update=True)
     # Save as json file
     folder = pattern.serialize(
         folder, 

@@ -920,3 +920,39 @@ design:
         - 1
         - 1.5
         type: float
+  patchwork:       # the garment's pieces broken into smaller ones along lines laid over the garment (seen from the front); every new piece is sewn to its neighbours (pygarment/garmentcode/patchwork.py)
+    style:
+      v: none
+      range: [none, triangles, shards, strips]
+      type: select
+      default_prob: 0.8
+    piece_size:    # cm: the side of a triangle, the width of a strip, about the size of a shard
+      v: 15.0
+      range: [8.0, 30.0]
+      type: float
+      default_prob: 0.4
+    angle:         # degrees: turns the strips (0: vertical) and the triangle grid
+      v: 0.0
+      range: [0.0, 180.0]
+      type: float
+      default_prob: 0.5
+    seed:          # the shards' random lines
+      v: 0
+      range: [0, 9999]
+      type: int
+      default_prob: 0.0
+    parts:
+      v: all
+      range: [all, torso, skirt, sleeves]
+      type: select
+      default_prob: 0.5
+    side:          # both, or only the wearer's left or right side: asymmetric
+      v: both
+      range: [both, left, right]
+      type: select
+      default_prob: 0.7
+    mirror:        # the lines reflected at the centre (left and right alike); off: they run on across the body (asymmetric)
+      v: true
+      range: [true, false]
+      type: bool
+      default_prob: 0.6
